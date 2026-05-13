@@ -33,10 +33,12 @@ import {
 } from "@server/services/rxresume";
 import { getEffectiveSettings } from "@server/services/settings";
 import { applySettingsUpdates } from "@server/services/settings-update";
+import { settingsRegistry } from "@shared/settings-registry";
 import {
   type UpdateSettingsInput,
   updateSettingsSchema,
 } from "@shared/settings-schema";
+import { LLM_PURPOSE_VALUES, type LlmPurpose } from "@shared/types";
 import { type Request, type Response, Router } from "express";
 
 export const settingsRouter = Router();
@@ -172,16 +174,26 @@ async function resolveLlmConfig(input: {
   provider?: string | null;
   apiKey?: string | null;
   baseUrl?: string | null;
+  purpose?: LlmPurpose | null;
 }): Promise<{
   provider: string | undefined;
   apiKey: string | null;
   baseUrl: string | undefined;
 }> {
-  const [storedApiKey, storedProvider, storedBaseUrl] = await Promise.all([
-    getSetting("llmApiKey"),
-    getSetting("llmProvider"),
-    getSetting("llmBaseUrl"),
-  ]);
+  const [storedApiKey, storedProvider, storedBaseUrl, storedPurposeApiKeys] =
+    await Promise.all([
+      getSetting("llmApiKey"),
+      getSetting("llmProvider"),
+      getSetting("llmBaseUrl"),
+      getSetting("llmPurposeApiKeys"),
+    ]);
+  const purposeApiKeys =
+    settingsRegistry.llmPurposeApiKeys.parse(
+      storedPurposeApiKeys ?? undefined,
+    ) ?? {};
+  const storedPurposeApiKey = input.purpose
+    ? purposeApiKeys[input.purpose]?.trim()
+    : null;
 
   const provider = normalizeLlmProviderValue(
     input.provider?.trim() || storedProvider?.trim() || undefined,
@@ -206,11 +218,19 @@ async function resolveLlmConfig(input: {
     provider,
     apiKey:
       input.apiKey?.trim() ||
+      storedPurposeApiKey ||
       storedApiKey?.trim() ||
       getOriginalEnvValue("LLM_API_KEY")?.trim() ||
       null,
     baseUrl,
   };
+}
+
+function parseLlmPurpose(value: unknown): LlmPurpose | null {
+  if (typeof value !== "string") return null;
+  return (LLM_PURPOSE_VALUES as readonly string[]).includes(value)
+    ? (value as LlmPurpose)
+    : null;
 }
 
 async function getCodexAuthResponseData(): Promise<{
@@ -360,7 +380,13 @@ settingsRouter.post(
       typeof req.body?.apiKey === "string" ? req.body.apiKey : undefined;
     const baseUrl =
       typeof req.body?.baseUrl === "string" ? req.body.baseUrl : undefined;
-    const resolved = await resolveLlmConfig({ provider, apiKey, baseUrl });
+    const purpose = parseLlmPurpose(req.body?.purpose);
+    const resolved = await resolveLlmConfig({
+      provider,
+      apiKey,
+      baseUrl,
+      purpose,
+    });
 
     const llm = new LlmService({
       provider: resolved.provider,

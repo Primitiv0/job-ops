@@ -1,6 +1,7 @@
 import * as api from "@client/api";
 import { CodexAuthPanel } from "@client/components/CodexAuthPanel";
 import { GeminiCliSetupHint } from "@client/components/GeminiCliSetupHint";
+import PurposeOverrideCard from "@client/components/llmmodelconfiguration/PurposeOverrideCard";
 import { SettingsInput } from "@client/pages/settings/components/SettingsInput";
 import {
   formatSecretHint,
@@ -11,9 +12,19 @@ import {
   supportsLlmModelSuggestions,
 } from "@client/pages/settings/utils";
 import { getDefaultModelForProvider } from "@shared/settings-registry";
+import type {
+  LlmPurpose,
+  LlmPurposeApiKeyHints,
+  LlmPurposeOverrides,
+} from "@shared/types";
 import type React from "react";
 import { useDeferredValue, useEffect, useState } from "react";
-import { SearchableDropdown } from "@/components/ui/searchable-dropdown";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import {
   Select,
   SelectContent,
@@ -22,11 +33,30 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import {
+  buildModelOptions,
+  LLM_PURPOSES,
+  renderKeyHelper,
+} from "./llm-model-configuration-helpers";
+import ModelField from "./ModelField";
 
 type TextFieldBinding = {
   value: string;
   onChange: (value: string) => void;
   error?: string;
+};
+
+type PurposeOverrideBinding = {
+  values: LlmPurposeOverrides;
+  apiKeys: Partial<Record<LlmPurpose, string | null>>;
+  apiKeyHints: LlmPurposeApiKeyHints;
+  models: Record<LlmPurpose, string>;
+  onChange: (
+    purpose: LlmPurpose,
+    field: "provider" | "baseUrl" | "model",
+    value: string | null,
+  ) => void;
+  onApiKeyChange: (purpose: LlmPurpose, value: string) => void;
 };
 
 type LlmModelConfigurationProps = {
@@ -45,6 +75,7 @@ type LlmModelConfigurationProps = {
   modelScorer?: TextFieldBinding;
   modelTailoring?: TextFieldBinding;
   modelProjectSelection?: TextFieldBinding;
+  purposeOverrides?: PurposeOverrideBinding;
   validationSlot?: React.ReactNode;
 };
 
@@ -64,6 +95,7 @@ export function LlmModelConfiguration({
   modelScorer,
   modelTailoring,
   modelProjectSelection,
+  purposeOverrides,
   validationSlot,
 }: LlmModelConfigurationProps) {
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -219,7 +251,7 @@ export function LlmModelConfiguration({
       : "text-xs text-muted-foreground";
 
   return (
-    <div className="space-y-4">
+    <>
       <div className={mode === "compact" ? "space-y-6" : "space-y-4"}>
         <div className="space-y-4">
           {mode === "settings" ? (
@@ -258,9 +290,9 @@ export function LlmModelConfiguration({
                 </p>
               ) : null}
               <p className={providerHintClass}>{providerConfig.providerHint}</p>
-              {isCodexProvider ? <CodexAuthPanel isBusy={disabled} /> : null}
-              {isGeminiCliProvider ? <GeminiCliSetupHint /> : null}
             </div>
+            {isCodexProvider ? <CodexAuthPanel isBusy={disabled} /> : null}
+            {isGeminiCliProvider ? <GeminiCliSetupHint /> : null}
             {showBaseUrl ? (
               <SettingsInput
                 label={mode === "compact" ? "Base URL" : "LLM base URL"}
@@ -328,50 +360,91 @@ export function LlmModelConfiguration({
         <>
           <Separator />
 
-          <div className="space-y-4">
-            <div className="text-sm font-medium">Task-Specific Overrides</div>
-
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              <ModelField
-                id="modelScorer"
-                label="Scoring Model"
-                value={modelScorer?.value ?? ""}
-                onChange={(value) => modelScorer?.onChange(value)}
-                error={modelScorer?.error}
-                supportsModelSuggestions={supportsModelSuggestions}
-                options={scoringModelOptions}
-                placeholder={previewDefaultModel || "Inherit default model"}
-                current={scoringModel}
-                disabled={disabled || isLoadingModels}
-              />
-              <ModelField
-                id="modelTailoring"
-                label="Tailoring Model"
-                value={modelTailoring?.value ?? ""}
-                onChange={(value) => modelTailoring?.onChange(value)}
-                error={modelTailoring?.error}
-                supportsModelSuggestions={supportsModelSuggestions}
-                options={tailoringModelOptions}
-                placeholder={previewDefaultModel || "Inherit default model"}
-                current={tailoringModel}
-                disabled={disabled || isLoadingModels}
-              />
-              <ModelField
-                id="modelProjectSelection"
-                label="Project Selection Model"
-                value={modelProjectSelection?.value ?? ""}
-                onChange={(value) => modelProjectSelection?.onChange(value)}
-                error={modelProjectSelection?.error}
-                supportsModelSuggestions={supportsModelSuggestions}
-                options={projectSelectionModelOptions}
-                placeholder={previewDefaultModel || "Inherit default model"}
-                current={projectSelectionModel}
-                disabled={disabled || isLoadingModels}
-              />
+          <div>
+            <div className="font-medium mt-8">
+              Purpose-specific model overrides
+            </div>
+            <div className="space-y-4">
+              {purposeOverrides ? (
+                <Accordion type="single" collapsible>
+                  {LLM_PURPOSES.map((purpose) => (
+                    <AccordionItem key={purpose.id} value={purpose.id}>
+                      <AccordionTrigger>
+                        <div className="flex flex-col items-start gap-1">
+                          <span className="font-medium text-sm">
+                            {purpose.label}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {purpose.description}
+                          </span>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <PurposeOverrideCard
+                          key={purpose.id}
+                          purpose={purpose.id}
+                          defaultProvider={selectedProvider}
+                          defaultModel={previewDefaultModel}
+                          defaultBaseUrl={resolvedBaseUrl}
+                          defaultApiKeyHint={apiKeyHint ?? null}
+                          value={purposeOverrides.values[purpose.id]}
+                          apiKeyValue={
+                            purposeOverrides.apiKeys[purpose.id] ?? ""
+                          }
+                          apiKeyHint={
+                            purposeOverrides.apiKeyHints[purpose.id] ?? null
+                          }
+                          currentModel={purposeOverrides.models[purpose.id]}
+                          disabled={disabled}
+                          onChange={purposeOverrides.onChange}
+                          onApiKeyChange={purposeOverrides.onApiKeyChange}
+                        />
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <ModelField
+                    id="modelScorer"
+                    label="Scoring Model"
+                    value={modelScorer?.value ?? ""}
+                    onChange={(value) => modelScorer?.onChange(value)}
+                    error={modelScorer?.error}
+                    supportsModelSuggestions={supportsModelSuggestions}
+                    options={scoringModelOptions}
+                    placeholder={previewDefaultModel || "Inherit default model"}
+                    current={scoringModel}
+                    disabled={disabled || isLoadingModels}
+                  />
+                  <ModelField
+                    id="modelTailoring"
+                    label="Tailoring Model"
+                    value={modelTailoring?.value ?? ""}
+                    onChange={(value) => modelTailoring?.onChange(value)}
+                    error={modelTailoring?.error}
+                    supportsModelSuggestions={supportsModelSuggestions}
+                    options={tailoringModelOptions}
+                    placeholder={previewDefaultModel || "Inherit default model"}
+                    current={tailoringModel}
+                    disabled={disabled || isLoadingModels}
+                  />
+                  <ModelField
+                    id="modelProjectSelection"
+                    label="Project Selection Model"
+                    value={modelProjectSelection?.value ?? ""}
+                    onChange={(value) => modelProjectSelection?.onChange(value)}
+                    error={modelProjectSelection?.error}
+                    supportsModelSuggestions={supportsModelSuggestions}
+                    options={projectSelectionModelOptions}
+                    placeholder={previewDefaultModel || "Inherit default model"}
+                    current={projectSelectionModel}
+                    disabled={disabled || isLoadingModels}
+                  />
+                </div>
+              )}
             </div>
           </div>
-
-          <Separator />
 
           <div className="space-y-3 text-sm">
             <div className="text-xs text-muted-foreground">Resolved config</div>
@@ -408,137 +481,6 @@ export function LlmModelConfiguration({
           </div>
         </>
       ) : null}
-    </div>
-  );
-}
-
-function ModelField({
-  id,
-  label,
-  value,
-  onChange,
-  error,
-  supportsModelSuggestions,
-  options,
-  placeholder,
-  helper,
-  current,
-  disabled,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  error?: string;
-  supportsModelSuggestions: boolean;
-  options: Array<{ value: string; label: string; searchText: string }>;
-  placeholder: string;
-  helper?: React.ReactNode;
-  current: string;
-  disabled: boolean;
-}) {
-  if (supportsModelSuggestions) {
-    return (
-      <div className="space-y-2">
-        <label htmlFor={id} className="text-sm font-medium">
-          {label}
-        </label>
-        <SearchableDropdown
-          inputId={id}
-          value={value}
-          options={options}
-          onValueChange={onChange}
-          placeholder={placeholder}
-          searchPlaceholder="Search models..."
-          emptyText="No models found."
-          ariaLabel={label}
-          disabled={disabled}
-          triggerClassName="h-9 w-full justify-between rounded-md border border-input bg-transparent px-3 text-sm font-normal shadow-sm"
-          contentClassName="w-[var(--radix-popover-trigger-width)] border-border bg-popover p-0"
-          listClassName="max-h-64"
-        />
-        {error ? <p className="text-xs text-destructive">{error}</p> : null}
-        {helper ? (
-          <div className="text-xs text-muted-foreground">{helper}</div>
-        ) : null}
-        <div className="text-xs text-muted-foreground">
-          Current: <span className="font-mono">{current}</span>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <SettingsInput
-      label={label}
-      inputProps={{
-        name: id,
-        value,
-        onChange: (event) => onChange(event.target.value),
-      }}
-      placeholder={placeholder}
-      disabled={disabled}
-      error={error}
-      helper={helper}
-      current={current}
-    />
-  );
-}
-
-function renderKeyHelper(
-  helperText: string,
-  helperHref: string | null,
-  keepSavedKey: boolean,
-) {
-  return (
-    <>
-      {helperHref ? (
-        <a
-          href={helperHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline decoration-border underline-offset-4 transition-colors hover:text-foreground"
-        >
-          {helperText}
-        </a>
-      ) : (
-        helperText
-      )}
-      {keepSavedKey ? ". Leave blank to keep the saved key." : null}
     </>
   );
-}
-
-function buildModelOptions(input: {
-  models: string[];
-  emptyLabel: string;
-  emptyValue: string;
-  fallbackValue?: string;
-}) {
-  const options = [
-    {
-      value: input.emptyValue,
-      label: input.emptyLabel,
-      searchText: input.emptyLabel,
-    },
-    ...input.models.map((model) => ({
-      value: model,
-      label: model,
-      searchText: model,
-    })),
-  ];
-
-  const fallbackValue = input.fallbackValue?.trim();
-  if (
-    fallbackValue &&
-    !options.some((option) => option.value === fallbackValue)
-  ) {
-    options.unshift({
-      value: fallbackValue,
-      label: fallbackValue,
-      searchText: `${fallbackValue} custom`,
-    });
-  }
-
-  return options;
 }

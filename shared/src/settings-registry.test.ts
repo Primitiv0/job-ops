@@ -355,4 +355,88 @@ describe("settingsRegistry helpers", () => {
       );
     });
   });
+
+  describe("LLM purpose override parsing", () => {
+    it("normalizes structured purpose overrides and drops empty purpose entries", () => {
+      const raw = JSON.stringify({
+        scoring: { model: "  llama3.2  " },
+        tailoring: {
+          provider: "openai-compatible",
+          baseUrl: "https://api.openai.com",
+          model: "gpt-5.4-mini",
+        },
+        projectSelection: {},
+      });
+
+      expect(settingsRegistry.llmPurposeOverrides.parse(raw)).toEqual({
+        scoring: { model: "llama3.2" },
+        tailoring: {
+          provider: "openai_compatible",
+          baseUrl: "https://api.openai.com",
+          model: "gpt-5.4-mini",
+        },
+      });
+    });
+
+    it("returns null for malformed stored purpose overrides", () => {
+      expect(
+        settingsRegistry.llmPurposeOverrides.parse(
+          JSON.stringify({ tailoring: { baseUrl: 123 } }),
+        ),
+      ).toBeNull();
+      expect(
+        settingsRegistry.llmPurposeOverrides.parse(
+          JSON.stringify({ tailoring: { provider: "unknown" } }),
+        ),
+      ).toBeNull();
+    });
+
+    it("normalizes whitespace-only purpose override base URLs as empty", () => {
+      expect(
+        settingsRegistry.llmPurposeOverrides.parse(
+          JSON.stringify({
+            scoring: { baseUrl: "   ", model: "  llama3.2  " },
+            tailoring: { baseUrl: "\t\n" },
+          }),
+        ),
+      ).toEqual({ scoring: { model: "llama3.2" } });
+    });
+
+    it("returns null for malformed stored purpose API keys", () => {
+      expect(
+        settingsRegistry.llmPurposeApiKeys.parse(
+          JSON.stringify({ tailoring: 123 }),
+        ),
+      ).toBeNull();
+      expect(
+        settingsRegistry.llmPurposeApiKeys.parse(
+          JSON.stringify({ tailoring: "sk-test", extra: "sk-extra" }),
+        ),
+      ).toBeNull();
+    });
+
+    it("normalizes purpose API keys and serializes empty keys as null", () => {
+      expect(
+        settingsRegistry.llmPurposeApiKeys.parse(
+          JSON.stringify({ tailoring: "  sk-test  ", scoring: "" }),
+        ),
+      ).toEqual({ tailoring: "sk-test" });
+      expect(settingsRegistry.llmPurposeApiKeys.serialize({})).toBeNull();
+      expect(
+        settingsRegistry.llmPurposeApiKeys.serialize({
+          tailoring: "",
+          scoring: null,
+        }),
+      ).toBeNull();
+    });
+
+    it("serializes empty purpose overrides as null", () => {
+      expect(settingsRegistry.llmPurposeOverrides.serialize({})).toBeNull();
+      expect(
+        settingsRegistry.llmPurposeOverrides.serialize({
+          tailoring: { model: "gpt-5.4-mini" },
+        }),
+      ).toBe(JSON.stringify({ tailoring: { model: "gpt-5.4-mini" } }));
+    });
+  });
 });
