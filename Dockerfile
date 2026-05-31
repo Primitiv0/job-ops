@@ -78,7 +78,8 @@ RUN --mount=type=cache,target=/root/.npm \
     npm install --workspaces --include-workspace-root --include=dev \
     --no-audit --no-fund --progress=false
 
-# Fetch Camoufox binaries before copying source to keep the download cached.
+# Fetch Camoufox binaries and GeoLite data before copying source to keep the
+# downloads cached and avoid runtime GitHub calls during browser launch.
 RUN --mount=type=secret,id=github_token,required=false \
     sh -c 'GITHUB_TOKEN="$([ -f /run/secrets/github_token ] && cat /run/secrets/github_token || true)" node ./scripts/camoufox-fetch.mjs'
 
@@ -153,6 +154,11 @@ COPY extractors/browser-utils/package*.json ./extractors/browser-utils/
 RUN --mount=type=cache,target=/root/.npm \
     npm install --workspaces --include-workspace-root --omit=dev \
     --no-audit --no-fund --progress=false
+
+# Browser fallbacks and the Cloudflare solver run through Node Playwright.
+# Python Playwright uses a different browser revision, so install the Node
+# Firefox binary explicitly into PLAYWRIGHT_BROWSERS_PATH.
+RUN ./node_modules/.bin/playwright install firefox
 
 FROM runtime-base AS tectonic
 
