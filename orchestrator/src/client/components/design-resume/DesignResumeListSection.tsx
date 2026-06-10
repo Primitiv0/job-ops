@@ -534,9 +534,11 @@ export function DesignResumeListSectionContent({
                   </TooltipTrigger>
                   <TooltipContent className="max-w-96 text-center" side="top">
                     Set the maximum number of projects that Job Tailoring can
-                    include in tailored resumes. <br/><br/> Always-selected projects count
-                    toward this limit. <br/><br/> Setting it to 0 prevents automatic
-                    project selection unless projects are marked Always.
+                    include in tailored resumes. <br />
+                    <br /> Always-selected projects count toward this limit.{" "}
+                    <br />
+                    <br /> Setting it to 0 prevents automatic project selection
+                    unless projects are marked Always.
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

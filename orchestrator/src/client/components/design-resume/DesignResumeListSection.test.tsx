@@ -100,7 +100,9 @@ describe("DesignResumeListSection", () => {
       </Accordion>,
     );
 
-    const maxProjectsInput = screen.getByLabelText("Max projects");
+    const maxProjectsInput = screen.getByLabelText(
+      "Maximum projects in Tailored Resumes",
+    );
     expect(maxProjectsInput).toHaveValue(2);
 
     fireEvent.change(maxProjectsInput, { target: { value: "1" } });
